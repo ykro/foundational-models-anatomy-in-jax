@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Naive Quadratic Recompute vs Prefill + KV-Cache Decode · Architecture delta</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper: #F7F6F2;
+      --color-paper-2: #EFECE6;
+      --color-ink: #0F2547;
+      --color-muted: #3B5B8C;
+      --color-rule: rgba(15,37,71,0.14);
+      --color-accent: #C59216;
+      --color-accent-text: #9A6F0B;
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body { font-family: var(--font-sans); color: var(--color-ink); background: var(--color-paper); min-height: 100vh; padding: 2.5rem 2rem; display: flex; align-items: center; justify-content: center; }
+    .frame { width: 100%; max-width: 1200px; min-width: 0; margin: 0 auto; }
+    .eyebrow { font-family: var(--font-mono); font-size: 0.66rem; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; color: var(--color-muted); margin-bottom: 0.5rem; }
+    h1 { font-family: var(--font-serif); font-size: clamp(1.75rem, 3vw + 1rem, 2rem); line-height: 1.1; font-weight: 400; letter-spacing: -0.02em; margin-bottom: 1.5rem; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .diagram-container:focus-visible { outline: 2px solid var(--color-muted); outline-offset: 4px; }
+    svg { display: block; width: 100%; min-width: 1200px; }
+    .scroll-hint { display: none; margin: 1rem 0 0; font-size: 0.8125rem; color: var(--color-muted); }
+    @media (max-width: 700px) { body { padding: 1.5rem 1rem; } .scroll-hint { display: block; } }
+    @media print { .diagram-container { overflow-x: visible; } svg { min-width: 0; } }
+  </style>
+</head>
+<body>
+  <main class="frame">
+    <p class="eyebrow">Architecture delta · JAX &amp; OpenXLA Field Guide</p>
+    <h1>Naive O(T²) per-step recomputation vs Prefill + static KV-Cache O(T) decode</h1>
+
+    <div class="diagram-container" role="region" aria-label="Before, changes, and after KV-Cache architecture comparison; scroll horizontally on narrow screens" tabindex="0">
+      <svg viewBox="0 0 1200 660" xmlns="http://www.w3.org/2000/svg" data-diagram="architecture-delta" role="img" aria-labelledby="kv-delta-title kv-delta-desc">
+        <title id="kv-delta-title">Naive full-prefix recomputation vs Prefill and KV-Cache decode</title>
+        <desc id="kv-delta-desc">Architecture delta comparing naive autoregressive decoding that recomputes K and V for the entire sequence at every step against two-phase Prefill plus static KV-Cache decoding updated via jax.lax.dynamic_update_slice.</desc>
+        <defs>
+          <marker id="kv-delta-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse"><polygon points="0 0, 8 3, 0 6" fill="#3B5B8C"/></marker>
+        </defs>
+        <rect width="1200" height="660" fill="#F7F6F2"/>
+        <text x="24" y="28" fill="#0F2547" font-size="14" font-family="'Geist', sans-serif" font-weight="600">Before · Naive Full-Prefix Loop</text>
+        <text x="24" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">Recomputes all past K, V tensors on every token</text>
+        <text x="424" y="28" fill="#0F2547" font-size="14" font-family="'Geist', sans-serif" font-weight="600">Changes Ledger</text>
+        <text x="424" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">Decouple parallel Prefill from O(T) cached Decode</text>
+        <text x="840" y="28" fill="#0F2547" font-size="14" font-family="'Geist', sans-serif" font-weight="600">After · Prefill + KV-Cache Decode</text>
+        <text x="840" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">Pre-allocated PJRT cache + dynamic_update_slice</text>
+        <path d="M 392 8 V 568 M 808 8 V 568" stroke="rgba(15,37,71,0.14)" stroke-width="1"/>
+
+        <g data-snapshot="before" transform="translate(24 88)" data-grid="336 480 4">
+          <path data-kind="relationship" data-object-id="r1" data-status="unchanged" data-signature="tokens:in" data-from="prompt" data-to="step" d="M 168 64 V 96" fill="none" stroke="#3B5B8C" stroke-width="1.2" marker-end="url(#kv-delta-arrow)"/>
+          <path data-kind="relationship" data-object-id="r2" data-status="rewired" data-signature="qkv-proj" data-from="step" data-to="recompute" d="M 168 160 V 192" fill="none" stroke="#3B5B8C" stroke-width="1.2" stroke-dasharray="8 3 2 3" marker-end="url(#kv-delta-arrow)"/>
+          <path data-kind="relationship" data-object-id="r3" data-status="removed" data-signature="full-attn" data-from="recompute" data-to="attn" d="M 168 256 V 304" fill="none" stroke="#3B5B8C" stroke-width="1.2" stroke-dasharray="4 4" marker-end="url(#kv-delta-arrow)"/>
+          <path data-kind="relationship" data-object-id="r5" data-status="unchanged" data-signature="emit-logits" data-from="attn" data-to="logits" d="M 168 368 V 416" fill="none" stroke="#3B5B8C" stroke-width="1.2" marker-end="url(#kv-delta-arrow)"/>
+
+          <rect x="176" y="72" width="96" height="16" rx="2" fill="#F7F6F2"/>
+          <text x="180" y="84" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r1 · PROMPT</text>
+          <rect x="176" y="168" width="96" height="16" rx="2" fill="#F7F6F2"/>
+          <text x="180" y="180" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r2 · REWIRED</text>
+          <rect x="176" y="272" width="108" height="16" rx="2" fill="#F7F6F2"/>
+          <text x="180" y="284" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r3 · FULL T×T</text>
+          <rect x="176" y="384" width="96" height="16" rx="2" fill="#F7F6F2"/>
+          <text x="180" y="396" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r5 · READOUT</text>
+
+          <g data-kind="component" data-object-id="prompt" data-status="unchanged" data-signature="tokens:prefix:v1">
+            <rect data-role="bounds" x="84" y="0" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2"/>
+            <text x="96" y="16" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">= prompt · UNCHANGED</text>
+            <text x="96" y="36" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Prompt Token IDs</text>
+            <text x="96" y="52" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">int32[B, 64]</text>
+          </g>
+
+          <g data-kind="component" data-object-id="step" data-status="changed" data-signature="step:full-seq">
+            <rect data-role="bounds" x="84" y="96" width="168" height="64" rx="6" fill="rgba(197,146,22,0.12)" stroke="#C59216" stroke-width="1.4"/>
+            <path d="M 85 108 V 148" fill="none" stroke="#C59216" stroke-width="3"/>
+            <text x="96" y="112" fill="#9A6F0B" font-size="7.5" font-family="'Geist Mono', monospace">~ step · CHANGED</text>
+            <text x="96" y="132" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Decode Step Input</text>
+            <text x="96" y="148" fill="#9A6F0B" font-size="9" font-family="'Geist Mono', monospace">feeds all tokens[0:t]</text>
+          </g>
+
+          <g data-kind="component" data-object-id="recompute" data-status="removed" data-signature="kv:recompute:v1">
+            <rect data-role="bounds" x="84" y="192" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2" stroke-dasharray="4 4"/>
+            <text x="96" y="208" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">− recompute · REMOVED</text>
+            <text x="96" y="228" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Redundant K/V Proj</text>
+            <text x="96" y="244" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">recomputes 0..t−1</text>
+          </g>
+
+          <g data-kind="component" data-object-id="attn" data-status="changed" data-signature="attn:quadratic">
+            <rect data-role="bounds" x="84" y="304" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2"/>
+            <path d="M 85 316 V 356" fill="none" stroke="#3B5B8C" stroke-width="3"/>
+            <text x="96" y="320" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">~ attn · CHANGED</text>
+            <text x="96" y="340" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Attention Matmul</text>
+            <text x="96" y="356" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">Q[T,D] @ K[T,D].T</text>
+          </g>
+
+          <g data-kind="component" data-object-id="logits" data-status="unchanged" data-signature="logits:vocab:v1">
+            <rect data-role="bounds" x="84" y="416" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2"/>
+            <text x="96" y="432" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">= logits · UNCHANGED</text>
+            <text x="96" y="452" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Next-Token Logits</text>
+            <text x="96" y="468" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">float32[B, V] · exact</text>
+          </g>
+        </g>
+
+        <!-- Center Ledger -->
+        <text x="424" y="106" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">01</text>
+        <text x="456" y="104" data-change="CHANGED" data-target="step" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">CHANGED · step<tspan x="456" y="126" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">Full prefix [B, T] → single token [B, 1] in Decode</tspan></text>
+        <path d="M 456 142 H 776" stroke="rgba(15,37,71,0.14)" stroke-width="0.8"/>
+
+        <text x="424" y="166" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">02</text>
+        <text x="456" y="164" data-change="REMOVED" data-target="recompute" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">REMOVED · recompute<tspan x="456" y="186" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">Eliminate redundant K, V projections for 0..t−1</tspan></text>
+        <path d="M 456 202 H 776" stroke="rgba(15,37,71,0.14)" stroke-width="0.8"/>
+
+        <text x="424" y="226" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">03</text>
+        <text x="456" y="224" data-change="ADDED" data-target="kvcache" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ADDED · kvcache<tspan x="456" y="246" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">Static KV-Cache updated via dynamic_update_slice</tspan></text>
+        <path d="M 456 262 H 776" stroke="rgba(15,37,71,0.14)" stroke-width="0.8"/>
+
+        <text x="424" y="286" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">04</text>
+        <text x="456" y="284" data-change="CHANGED" data-target="attn" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">CHANGED · attn<tspan x="456" y="306" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">O(T²) matrix-matrix → O(T) query-vector × cache</tspan></text>
+        <path d="M 456 322 H 776" stroke="rgba(15,37,71,0.14)" stroke-width="0.8"/>
+
+        <text x="424" y="346" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">05</text>
+        <text x="456" y="344" data-change="REWIRED" data-target="r2" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">REWIRED · r2<tspan x="456" y="366" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">Route single-step k_t, v_t into static cache slot pos</tspan></text>
+        <path d="M 456 382 H 776" stroke="rgba(15,37,71,0.14)" stroke-width="0.8"/>
+
+        <text x="424" y="406" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">06</text>
+        <text x="456" y="404" data-change="REMOVED" data-target="r3" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">REMOVED · r3<tspan x="456" y="426" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">Drop full T×T causal attention recomputation</tspan></text>
+        <path d="M 456 442 H 776" stroke="rgba(15,37,71,0.14)" stroke-width="0.8"/>
+
+        <text x="424" y="466" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">07</text>
+        <text x="456" y="464" data-change="ADDED" data-target="r4" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ADDED · r4<tspan x="456" y="486" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">Read cached K, V slices [0..pos] with zero drift</tspan></text>
+
+        <text x="424" y="536" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">PRESERVED</text>
+        <text x="424" y="554" fill="#3B5B8C" font-size="11" font-family="'Geist', sans-serif">Prompt token IDs · Next-token logits (Δ &lt; 1e-5) · r1 · r5</text>
+
+        <g data-snapshot="after" transform="translate(840 88)" data-grid="336 480 4">
+          <path data-kind="relationship" data-object-id="r1" data-status="unchanged" data-signature="tokens:in" data-from="prompt" data-to="step" d="M 168 64 V 96" fill="none" stroke="#3B5B8C" stroke-width="1.2" marker-end="url(#kv-delta-arrow)"/>
+          <path data-kind="relationship" data-object-id="r2" data-status="rewired" data-signature="qkv-proj" data-from="step" data-to="kvcache" d="M 168 160 V 192" fill="none" stroke="#3B5B8C" stroke-width="1.2" stroke-dasharray="8 3 2 3" marker-end="url(#kv-delta-arrow)"/>
+          <path data-kind="relationship" data-object-id="r4" data-status="added" data-signature="cache-read" data-from="kvcache" data-to="attn" d="M 168 256 V 304" fill="none" stroke="#3B5B8C" stroke-width="2" marker-end="url(#kv-delta-arrow)"/>
+          <path data-kind="relationship" data-object-id="r5" data-status="unchanged" data-signature="emit-logits" data-from="attn" data-to="logits" d="M 168 368 V 416" fill="none" stroke="#3B5B8C" stroke-width="1.2" marker-end="url(#kv-delta-arrow)"/>
+
+          <rect x="176" y="72" width="96" height="16" rx="2" fill="#F7F6F2"/>
+          <text x="180" y="84" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r1 · PREFILL</text>
+          <rect x="176" y="168" width="96" height="16" rx="2" fill="#F7F6F2"/>
+          <text x="180" y="180" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r2 · SLICE POS</text>
+          <rect x="176" y="272" width="108" height="16" rx="2" fill="#F7F6F2"/>
+          <text x="180" y="284" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r4 · CACHE READ</text>
+          <rect x="176" y="384" width="96" height="16" rx="2" fill="#F7F6F2"/>
+          <text x="180" y="396" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r5 · READOUT</text>
+
+          <g data-kind="component" data-object-id="prompt" data-status="unchanged" data-signature="tokens:prefix:v1">
+            <rect data-role="bounds" x="84" y="0" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2"/>
+            <text x="96" y="16" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">= prompt · UNCHANGED</text>
+            <text x="96" y="36" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Prompt Token IDs</text>
+            <text x="96" y="52" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">int32[B, 64]</text>
+          </g>
+
+          <g data-kind="component" data-object-id="step" data-status="changed" data-signature="step:single-tok">
+            <rect data-role="bounds" x="84" y="96" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2"/>
+            <path d="M 85 108 V 148" fill="none" stroke="#3B5B8C" stroke-width="3"/>
+            <text x="96" y="112" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">~ step · CHANGED</text>
+            <text x="96" y="132" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Decode Step Input</text>
+            <text x="96" y="148" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">single token [B, 1]</text>
+          </g>
+
+          <g data-kind="component" data-object-id="kvcache" data-status="added" data-signature="xla:kvcache:v1">
+            <rect data-role="bounds" x="84" y="192" width="168" height="64" rx="6" fill="rgba(197,146,22,0.12)" stroke="#C59216" stroke-width="1.4"/>
+            <rect x="88" y="196" width="160" height="56" rx="4" fill="none" stroke="#C59216" stroke-width="0.8"/>
+            <text x="96" y="208" fill="#9A6F0B" font-size="7.5" font-family="'Geist Mono', monospace">+ kvcache · ADDED</text>
+            <text x="96" y="228" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Static KV-Cache</text>
+            <text x="96" y="244" fill="#9A6F0B" font-size="9" font-family="'Geist Mono', monospace">dynamic_update_slice</text>
+          </g>
+
+          <g data-kind="component" data-object-id="attn" data-status="changed" data-signature="attn:linear-step">
+            <rect data-role="bounds" x="84" y="304" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2"/>
+            <path d="M 85 316 V 356" fill="none" stroke="#3B5B8C" stroke-width="3"/>
+            <text x="96" y="320" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">~ attn · CHANGED</text>
+            <text x="96" y="340" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Attention Matmul</text>
+            <text x="96" y="356" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">q[1,D] @ K_cache.T</text>
+          </g>
+
+          <g data-kind="component" data-object-id="logits" data-status="unchanged" data-signature="logits:vocab:v1">
+            <rect data-role="bounds" x="84" y="416" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2"/>
+            <text x="96" y="432" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">= logits · UNCHANGED</text>
+            <text x="96" y="452" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Next-Token Logits</text>
+            <text x="96" y="468" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">float32[B, V] · exact</text>
+          </g>
+        </g>
+
+        <path d="M 24 592 H 1176" stroke="rgba(15,37,71,0.14)" stroke-width="1"/>
+        <rect x="24" y="608" width="20" height="16" rx="3" fill="none" stroke="#3B5B8C" stroke-width="1"/>
+        <text x="54" y="620" fill="#3B5B8C" font-size="11" font-family="'Geist', sans-serif">= Unchanged</text>
+        <rect x="210" y="608" width="20" height="16" rx="3" fill="rgba(197,146,22,0.12)" stroke="#C59216" stroke-width="1.2"/>
+        <text x="240" y="620" fill="#9A6F0B" font-size="11" font-family="'Geist', sans-serif">+ Added (Focal)</text>
+        <rect x="420" y="608" width="20" height="16" rx="3" fill="none" stroke="#3B5B8C" stroke-width="1" stroke-dasharray="4 4"/>
+        <text x="450" y="620" fill="#3B5B8C" font-size="11" font-family="'Geist', sans-serif">− Removed</text>
+        <rect x="612" y="608" width="20" height="16" rx="3" fill="none" stroke="#3B5B8C" stroke-width="1"/>
+        <path d="M 613 612 V 620" stroke="#3B5B8C" stroke-width="3"/>
+        <text x="642" y="620" fill="#3B5B8C" font-size="11" font-family="'Geist', sans-serif">~ Changed</text>
+        <path d="M 820 616 H 844" fill="none" stroke="#3B5B8C" stroke-width="1.2" stroke-dasharray="8 3 2 3" marker-end="url(#kv-delta-arrow)"/>
+        <text x="854" y="620" fill="#3B5B8C" font-size="11" font-family="'Geist', sans-serif">⇢ Rewired</text>
+        <text x="1176" y="644" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace" text-anchor="end">6 components · 5 relationships · 7 changes</text>
+      </svg>
+    </div>
+    <p class="scroll-hint">Scroll horizontally to compare naive O(T²) full-prefix recomputation, the changes ledger, and static KV-Cache decoding.</p>
+  </main>
+</body>
+</html>

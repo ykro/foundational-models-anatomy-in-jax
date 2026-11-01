@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1000 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="fm-stack-title fm-stack-desc" id="d-01-foundational-model-data-structures-root">
+        <title id="fm-stack-title">Foundational Model data structures stack in JAX</title>
+        <desc id="fm-stack-desc">Six-layer stack showing how a Foundational Model transforms a UTF-8 string into BPE token IDs, scaled embedding vectors, N Gemma blocks with GQA, RoPE, KV-Cache and GeGLU, unnormalized vocabulary logits, and the autoregressive sampler.</desc>
+        <defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap');
+      #d-01-foundational-model-data-structures-root { --color-paper:   #F7F6F2;
+      --color-paper-2: #EFECE6;
+      --color-ink:     #0F2547;
+      --color-muted:   #3B5B8C;
+      --color-accent:  #C59216;
+      --color-accent-text: #9A6F0B;
+      --font-sans:     'Geist', system-ui, sans-serif;
+      --font-serif:    'Instrument Serif', serif;
+      --font-mono:     'Geist Mono', ui-monospace, monospace; }
+      #d-01-foundational-model-data-structures-root { font-family: var(--font-sans); color: var(--color-ink); }
+      #d-01-foundational-model-data-structures-root .diagram-container { width: 100%; overflow-x: auto; }
+      #d-01-foundational-model-data-structures-root .diagram-container { overflow-x: visible; }</style>
+          <pattern id="d-01-foundational-model-data-structures-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="#0f2547" fill-opacity="0.10"/>
+          </pattern>
+        </defs>
+
+        <rect width="1000" height="540" fill="#F7F6F2"/>
+        <rect width="1000" height="540" fill="url(#d-01-foundational-model-data-structures-dots)" opacity="0.55"/>
+
+        <!-- Direction column (left margin) -->
+        <text x="52" y="56" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">SAMPLER</text>
+        <line x1="76" y1="68" x2="76" y2="452" stroke="#0f2547" stroke-opacity="0.30" stroke-width="1"/>
+        <polygon points="72,68 80,68 76,60" fill="#3B5B8C"/>
+        <text x="52" y="468" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.18em">UTF-8 IN</text>
+
+        <!-- Stack container hairlines (top + bottom edges) -->
+        <line x1="120" y1="68" x2="960" y2="68" stroke="#0f2547" stroke-opacity="0.14" stroke-width="1"/>
+        <line x1="120" y1="452" x2="960" y2="452" stroke="#0f2547" stroke-opacity="0.14" stroke-width="1"/>
+
+        <!-- L6 — Autoregressive Sampler -->
+        <rect x="120" y="68" width="840" height="64" fill="#FFFFFF"/>
+        <line x1="120" y1="132" x2="960" y2="132" stroke="#0f2547" stroke-opacity="0.14" stroke-width="1"/>
+        <text x="140" y="104" fill="#3B5B8C" font-size="8.5" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L6 · SAMPLE</text>
+        <text x="272" y="106" fill="#0F2547" font-size="15.5" font-weight="600" font-family="'Geist', sans-serif">Autoregressive Sampling Loop</text>
+        <text x="940" y="106" fill="#3B5B8C" font-size="10" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">temperature · top-k / top-p · grammar mask → int32[B, 1]</text>
+
+        <!-- L5 — Vocabulary Readout Head -->
+        <rect x="120" y="132" width="840" height="64" fill="#EFECE6"/>
+        <line x1="120" y1="196" x2="960" y2="196" stroke="#0f2547" stroke-opacity="0.14" stroke-width="1"/>
+        <text x="140" y="168" fill="#3B5B8C" font-size="8.5" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L5 · LOGITS</text>
+        <text x="272" y="170" fill="#0F2547" font-size="15.5" font-weight="600" font-family="'Geist', sans-serif">Final RMSNorm &amp; Tied Logit Readout</text>
+        <text x="940" y="170" fill="#3B5B8C" font-size="10" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">h_last @ W_emb.T → logits float32[B, V]</text>
+
+        <!-- L4 — N × Gemma Decoder Blocks (FOCAL) -->
+        <rect x="120" y="196" width="840" height="64" fill="#c59216" fill-opacity="0.12"/>
+        <rect x="120" y="196" width="840" height="64" fill="none" stroke="#C59216" stroke-width="1.4"/>
+        <text x="140" y="232" fill="#9A6F0B" font-size="8.5" font-family="'Geist Mono', monospace" letter-spacing="0.14em" font-weight="600">L4 · BLOCKS</text>
+        <text x="272" y="234" fill="#0F2547" font-size="15.5" font-weight="600" font-family="'Geist', sans-serif">N × Gemma Decoder Blocks (GQA + GeGLU)</text>
+        <text x="940" y="234" fill="#9A6F0B" font-size="10" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">RMSNorm · Grouped-Query Attention (8Q:2KV) · GeGLU → float32[B, T, D]</text>
+
+        <!-- L3 — Causal Self-Attention + RoPE + KV-Cache -->
+        <rect x="120" y="260" width="840" height="64" fill="#F7F6F2"/>
+        <line x1="120" y1="324" x2="960" y2="324" stroke="#0f2547" stroke-opacity="0.14" stroke-width="1"/>
+        <text x="140" y="296" fill="#3B5B8C" font-size="8.5" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L3 · MEMORY</text>
+        <text x="272" y="298" fill="#0F2547" font-size="15.5" font-weight="600" font-family="'Geist', sans-serif">Soft Dictionary Attention, RoPE &amp; KV-Cache</text>
+        <text x="940" y="298" fill="#3B5B8C" font-size="10" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">softmax(Q_rot @ K_rot.T / √d_k + mask) @ V · cache[L, B, H_kv, S, D_h]</text>
+
+        <!-- L2 — Token Embedding Gather -->
+        <rect x="120" y="324" width="840" height="64" fill="#EFECE6"/>
+        <line x1="120" y1="388" x2="960" y2="388" stroke="#0f2547" stroke-opacity="0.14" stroke-width="1"/>
+        <text x="140" y="360" fill="#3B5B8C" font-size="8.5" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L2 · EMBED</text>
+        <text x="272" y="362" fill="#0F2547" font-size="15.5" font-weight="600" font-family="'Geist', sans-serif">Embedding Lookup Table &amp; √D Scaling</text>
+        <text x="940" y="362" fill="#3B5B8C" font-size="10" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">W_emb[token_ids] * √d_model → float32[B, T, D]</text>
+
+        <!-- L1 — BPE Tokenizer -->
+        <rect x="120" y="388" width="840" height="64" fill="#FFFFFF"/>
+        <text x="140" y="424" fill="#3B5B8C" font-size="8.5" font-family="'Geist Mono', monospace" letter-spacing="0.14em">L1 · TOKENS</text>
+        <text x="272" y="426" fill="#0F2547" font-size="15.5" font-weight="600" font-family="'Geist', sans-serif">Byte-Pair Encoding (BPE) Sub-Word Compression</text>
+        <text x="940" y="426" fill="#3B5B8C" font-size="10" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">UTF-8 bytes → iterative pair merges → int32[B, T]</text>
+
+        <!-- Caption / Legend strip -->
+        <line x1="120" y1="484" x2="960" y2="484" stroke="#0f2547" stroke-opacity="0.14" stroke-width="1"/>
+        <rect x="120" y="500" width="20" height="14" rx="3" fill="#c59216" fill-opacity="0.12" stroke="#C59216" stroke-width="1.2"/>
+        <text x="150" y="511" fill="#9A6F0B" font-size="10" font-family="'Geist Mono', monospace" letter-spacing="0.08em">FOCAL LAYER (L4)</text>
+        <text x="292" y="511" fill="#3B5B8C" font-size="10.5" font-family="'Geist', sans-serif" font-style="italic">Each Gemma block preserves the tensor shape float32[B, T, D] so N blocks compose as a pure functional pipeline under @jax.jit.</text>
+      </svg>

@@ -1,0 +1,15 @@
+==============================================================================
+THE OUTSIDE JUDGE — Foundational Models Anatomy in JAX Verification Report
+==============================================================================
+Runtime : Python 3.12.11 | JAX 0.12.0.1 | NumPy 2.5.4 | Backend: cpu
+------------------------------------------------------------------------------
+Experiment                         | Baseline       | JAX/OpenXLA    | Speedup / Check
+------------------------------------------------------------------------------
+01. BPE Compression & Gather       | 13.3156 ms     | 0.3248 ms      | 41.00x (2.22x BPE)
+02. Causal Self-Attention + RoPE   | 6.9015 ms      | 1.1861 ms      | 5.82x (leak=0.0)
+03. Gemma Block (RMS+GQA+GeGLU)    | 8.1952 ms      | 4.1231 ms      | 1.99x (4x KV RAM)
+04. KV-Cache Prefill vs Decode     | 414.8111 ms    | 43.0929 ms     | 9.63x (64/64 tok)
+05. Sampling Loop + Grammar Mask   | 74.3556 ms     | 3.6776 ms      | 20.22x (100% JSON)
+------------------------------------------------------------------------------
+Saved JSON report to: benchmarks/latest_results.json
+ALL DETERMINISTIC CHECKS PASSED.

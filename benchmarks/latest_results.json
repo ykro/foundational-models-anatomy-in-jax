@@ -1,0 +1,75 @@
+{
+  "environment": {
+    "python_version": "3.12.11",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "processor": "arm",
+    "jax_version": "0.12.0.1",
+    "numpy_version": "2.5.4",
+    "jax_backend": "cpu",
+    "jax_device": "cpu:0"
+  },
+  "experiments": {
+    "01_bpe_tokenizer_as_data_compression": {
+      "backend": "cpu",
+      "vocab_size": 384,
+      "raw_byte_len_es": 175,
+      "bpe_token_len_es": 79,
+      "compression_ratio_es": 2.2152,
+      "chars_per_token_es": 2.1772,
+      "chars_per_token_en": 2.2687,
+      "quadratic_attention_saving": 4.9071,
+      "roundtrip_exact": true,
+      "py_lookup_ms": 13.3156,
+      "jit_lookup_ms": 0.3248,
+      "speedup_vs_py": 41.0024,
+      "max_diff": 0.0
+    },
+    "02_self_attention_as_soft_dictionary": {
+      "backend": "cpu",
+      "shape": "(8, 8, 128, 64)",
+      "rope_norm_diff": 1e-06,
+      "rope_rel_diff": 1e-06,
+      "causal_prefix_leak": 0.0,
+      "naive_ms": 6.9015,
+      "jit_ms": 1.1861,
+      "speedup": 5.8185,
+      "max_diff": 1e-06
+    },
+    "03_gemma_block_rms_geglu": {
+      "backend": "cpu",
+      "shape": "(8, 128, 256)",
+      "num_q_heads": 8,
+      "num_kv_heads": 2,
+      "mha_kv_kb": 2048.0,
+      "gqa_kv_kb": 512.0,
+      "kv_memory_saving_ratio": 4.0,
+      "rms_mean": 1.0,
+      "eager_ms": 8.1952,
+      "jit_ms": 4.1231,
+      "speedup": 1.9876,
+      "max_diff": 2e-06
+    },
+    "04_kv_cache_prefill_vs_decode": {
+      "backend": "cpu",
+      "prompt_len": 64,
+      "gen_steps": 64,
+      "max_seq_len": 128,
+      "exact_token_match": true,
+      "max_logit_diff": 8e-06,
+      "naive_ms": 414.8111,
+      "kv_ms": 43.0929,
+      "speedup": 9.626
+    },
+    "05_sampling_loop_temperature_top_p": {
+      "backend": "cpu",
+      "shape": "(32, 64, 512)",
+      "greedy_parity": true,
+      "active_support_mean": 13.7969,
+      "grammar_compliance_rate": 100.0,
+      "py_ms": 74.3556,
+      "jit_ms": 3.6776,
+      "speedup": 20.2187
+    }
+  },
+  "all_verifications_passed": true
+}

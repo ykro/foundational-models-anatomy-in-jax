@@ -1,0 +1,11 @@
+title = "Gitleaks configuration for foundational-models-anatomy-in-jax"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow documentation placeholders and non-secret paths"
+paths = [
+  '''^\.venv''',
+  '''benchmarks/latest_results\.json''',
+]
