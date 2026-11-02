@@ -33,7 +33,7 @@
 </head>
 <body>
   <main class="frame">
-    <p class="eyebrow">Architecture delta · JAX &amp; OpenXLA Field Guide</p>
+    <p class="eyebrow">Architecture delta · JAX &amp; ML for Software Devs Field Guide</p>
     <h1>Naive O(T²) per-step recomputation vs Prefill + static KV-Cache O(T) decode</h1>
 
     <div class="diagram-container" role="region" aria-label="Before, changes, and after KV-Cache architecture comparison; scroll horizontally on narrow screens" tabindex="0">
@@ -49,7 +49,7 @@
         <text x="424" y="28" fill="#0F2547" font-size="14" font-family="'Geist', sans-serif" font-weight="600">Changes Ledger</text>
         <text x="424" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">Decouple parallel Prefill from O(T) cached Decode</text>
         <text x="840" y="28" fill="#0F2547" font-size="14" font-family="'Geist', sans-serif" font-weight="600">After · Prefill + KV-Cache Decode</text>
-        <text x="840" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">Pre-allocated PJRT cache + dynamic_update_slice</text>
+        <text x="840" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">Pre-allocated static buffer + dynamic_update_slice</text>
         <path d="M 392 8 V 568 M 808 8 V 568" stroke="rgba(15,37,71,0.14)" stroke-width="1"/>
 
         <g data-snapshot="before" transform="translate(24 88)" data-grid="336 480 4">
@@ -101,7 +101,7 @@
             <rect data-role="bounds" x="84" y="416" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2"/>
             <text x="96" y="432" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">= logits · UNCHANGED</text>
             <text x="96" y="452" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Next-Token Logits</text>
-            <text x="96" y="468" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">float32[B, V] · exact</text>
+            <text x="96" y="468" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">float32[B, V] · reference</text>
           </g>
         </g>
 
@@ -131,7 +131,7 @@
         <path d="M 456 442 H 776" stroke="rgba(15,37,71,0.14)" stroke-width="0.8"/>
 
         <text x="424" y="466" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">07</text>
-        <text x="456" y="464" data-change="ADDED" data-target="r4" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ADDED · r4<tspan x="456" y="486" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">Read cached K, V slices [0..pos] with zero drift</tspan></text>
+        <text x="456" y="464" data-change="ADDED" data-target="r4" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ADDED · r4<tspan x="456" y="486" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">Read every cached K, V slot; mask slots after pos</tspan></text>
 
         <text x="424" y="536" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">PRESERVED</text>
         <text x="424" y="554" fill="#3B5B8C" font-size="11" font-family="'Geist', sans-serif">Prompt token IDs · Next-token logits (Δ &lt; 1e-5) · r1 · r5</text>
@@ -186,7 +186,7 @@
             <rect data-role="bounds" x="84" y="416" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2"/>
             <text x="96" y="432" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">= logits · UNCHANGED</text>
             <text x="96" y="452" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Next-Token Logits</text>
-            <text x="96" y="468" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">float32[B, V] · exact</text>
+            <text x="96" y="468" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">float32[B, V] · same tokens</text>
           </g>
         </g>
 

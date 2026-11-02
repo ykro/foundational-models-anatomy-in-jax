@@ -59,13 +59,13 @@
 </head>
 <body>
   <main class="frame">
-    <p class="eyebrow">Layer stack · JAX &amp; OpenXLA Field Guide</p>
+    <p class="eyebrow">Layer stack · JAX &amp; ML for Software Devs Field Guide</p>
     <h1>Anatomy of a Foundational Model · From UTF-8 string to sampled next token</h1>
 
     <div class="diagram-container">
       <svg viewBox="0 0 1000 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="fm-stack-title fm-stack-desc">
         <title id="fm-stack-title">Foundational Model data structures stack in JAX</title>
-        <desc id="fm-stack-desc">Six-layer stack showing how a Foundational Model transforms a UTF-8 string into BPE token IDs, scaled embedding vectors, N Gemma blocks with GQA, RoPE, KV-Cache and GeGLU, unnormalized vocabulary logits, and the autoregressive sampler.</desc>
+        <desc id="fm-stack-desc">Six-layer stack showing how a Foundational Model transforms a UTF-8 string into BPE token IDs, scaled embedding vectors, N Gemma-style blocks with GQA, RoPE, KV-Cache and GeGLU, unnormalized vocabulary logits, and the autoregressive sampler.</desc>
         <defs>
           <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
             <circle cx="1" cy="1" r="0.9" fill="rgba(15,37,71,0.10)"/>
@@ -103,7 +103,7 @@
         <rect x="120" y="196" width="840" height="64" fill="rgba(197,146,22,0.12)"/>
         <rect x="120" y="196" width="840" height="64" fill="none" stroke="#C59216" stroke-width="1.4"/>
         <text x="140" y="232" fill="#9A6F0B" font-size="8.5" font-family="'Geist Mono', monospace" letter-spacing="0.14em" font-weight="600">L4 · BLOCKS</text>
-        <text x="272" y="234" fill="#0F2547" font-size="15.5" font-weight="600" font-family="'Geist', sans-serif">N × Gemma Decoder Blocks (GQA + GeGLU)</text>
+        <text x="272" y="234" fill="#0F2547" font-size="15.5" font-weight="600" font-family="'Geist', sans-serif">N × Gemma-style Decoder Blocks (GQA + GeGLU)</text>
         <text x="940" y="234" fill="#9A6F0B" font-size="10" font-family="'Geist Mono', monospace" text-anchor="end" letter-spacing="0.06em">RMSNorm · Grouped-Query Attention (8Q:2KV) · GeGLU → float32[B, T, D]</text>
 
         <!-- L3 — Causal Self-Attention + RoPE + KV-Cache -->
