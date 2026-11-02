@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # On-demand GPU (Vertex AI L4) and Cloud TPU (v5litepod-1) benchmark runner with auto-teardown
-# Project: ai-experiments-487722
+# Project: your own (set GCP_PROJECT_ID)
 # Guarantees zero orphaned cloud resources via EXIT trap.
 
 set -euo pipefail
 
 export CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_ENVIRONMENT }datacloud.antigravity"
-PROJECT_ID="${GCP_PROJECT_ID:-ai-experiments-487722}"
+PROJECT_ID="${GCP_PROJECT_ID:?Set GCP_PROJECT_ID to your Google Cloud project id}"
 REGION="${GCP_REGION:-us-central1}"
 ZONE="${GCP_ZONE:-us-central1-a}"
 MODE="${1:-tpu}"
