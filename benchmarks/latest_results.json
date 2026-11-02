@@ -3,6 +3,19 @@
     "python_version": "3.12.11",
     "platform": "macOS-26.6.2-arm64-arm-64bit",
     "processor": "arm",
+    "cpu_model": "Apple M1 Max",
+    "cpu_count": 10,
+    "load_average_before": [
+      21.65,
+      22.12,
+      19.09
+    ],
+    "load_average_after": [
+      17.92,
+      21.26,
+      18.83
+    ],
+    "timing": "median ms after a warmup; varies run to run",
     "jax_version": "0.12.0.1",
     "numpy_version": "2.5.4",
     "jax_backend": "cpu",
@@ -18,11 +31,24 @@
       "chars_per_token_es": 2.1772,
       "chars_per_token_en": 2.2687,
       "quadratic_attention_saving": 4.9071,
+      "heldout_byte_len": 86,
+      "heldout_token_len": 54,
+      "heldout_compression_ratio": 1.5926,
+      "first_merges": [
+        "en",
+        "s ",
+        "de",
+        "at"
+      ],
       "roundtrip_exact": true,
-      "py_lookup_ms": 13.3156,
-      "jit_lookup_ms": 0.3248,
-      "speedup_vs_py": 41.0024,
-      "max_diff": 0.0
+      "gather_rows": 16384,
+      "py_lookup_ms": 12.9598,
+      "numpy_vectorized_ms": 1.1806,
+      "jit_lookup_ms": 0.3221,
+      "speedup_vs_py": 40.2346,
+      "speedup_vs_numpy_vectorized": 3.6653,
+      "max_diff": 0.0,
+      "max_diff_numpy_vectorized": 0.0
     },
     "02_self_attention_as_soft_dictionary": {
       "backend": "cpu",
@@ -30,10 +56,17 @@
       "rope_norm_diff": 1e-06,
       "rope_rel_diff": 1e-06,
       "causal_prefix_leak": 0.0,
-      "naive_ms": 6.9015,
-      "jit_ms": 1.1861,
-      "speedup": 5.8185,
-      "max_diff": 1e-06
+      "causal_pivot": 64,
+      "batch_head_pairs": 64,
+      "hlo_fusions": 7,
+      "hlo_dots": 2,
+      "naive_ms": 6.555,
+      "numpy_batched_ms": 5.3277,
+      "jit_ms": 1.132,
+      "speedup": 5.7909,
+      "speedup_vs_numpy_batched": 4.7067,
+      "max_diff": 1e-06,
+      "max_diff_numpy_batched": 1e-06
     },
     "03_gemma_block_rms_geglu": {
       "backend": "cpu",
@@ -44,9 +77,12 @@
       "gqa_kv_kb": 512.0,
       "kv_memory_saving_ratio": 4.0,
       "rms_mean": 1.0,
-      "eager_ms": 8.1952,
-      "jit_ms": 4.1231,
-      "speedup": 1.9876,
+      "eager_top_level_ops": 88,
+      "hlo_fusions": 30,
+      "hlo_dots": 9,
+      "eager_ms": 6.5208,
+      "jit_ms": 3.6783,
+      "speedup": 1.7728,
       "max_diff": 2e-06
     },
     "04_kv_cache_prefill_vs_decode": {
@@ -54,21 +90,41 @@
       "prompt_len": 64,
       "gen_steps": 64,
       "max_seq_len": 128,
+      "batch_size": 4,
+      "num_layers": 4,
+      "cache_shape": "(4, 4, 2, 128, 32)",
+      "cache_kb_each": 512.0,
       "exact_token_match": true,
+      "generated_tokens_identical": 256,
+      "generated_tokens_total": 256,
       "max_logit_diff": 8e-06,
-      "naive_ms": 414.8111,
-      "kv_ms": 43.0929,
-      "speedup": 9.626
+      "naive_ms": 423.122,
+      "kv_ms": 33.6515,
+      "speedup": 12.5737,
+      "decode_step_ms_by_cache_len": {
+        "128": 0.5831,
+        "1024": 2.0352,
+        "8192": 11.9785
+      }
     },
     "05_sampling_loop_temperature_top_p": {
       "backend": "cpu",
       "shape": "(32, 64, 512)",
+      "steps": 32,
+      "batch_size": 64,
+      "vocab_size": 512,
       "greedy_parity": true,
+      "greedy_rows_matching": 64,
       "active_support_mean": 13.7969,
       "grammar_compliance_rate": 100.0,
-      "py_ms": 74.3556,
-      "jit_ms": 3.6776,
-      "speedup": 20.2187
+      "grammar_valid_draws": 2048,
+      "sampled_row0_first_steps": "{\"status\":\"ok\",\"tokens\":12",
+      "loop_of_jit_matches_scan": true,
+      "py_ms": 68.0771,
+      "loop_of_jit_ms": 6.1462,
+      "jit_ms": 3.1686,
+      "speedup": 21.485,
+      "speedup_vs_loop_of_jit": 1.9397
     }
   },
   "all_verifications_passed": true

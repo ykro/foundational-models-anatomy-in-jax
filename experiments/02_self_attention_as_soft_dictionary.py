@@ -8,13 +8,21 @@ In Python, a dictionary `d[query]` requires an exact hash match (`key == query`)
 2. Rotary Position Embeddings (`RoPE`) rotate pairs of `(Q, K)` coordinates by angle `pos * theta`
    so the dot product `Q[m] · K[n]` depends only on relative distance `m - n` while preserving
    the L2 norm of every vector.
-3. The lower-triangular causal mask (`jnp.tril`) sets future scores `n > m` to `-inf`, ensuring
-   token `m` can never read keys from the future (`t > m`).
+3. The lower-triangular causal mask (`jnp.tril`) sets future scores `n > m` to `-1e9` before the
+   softmax, ensuring token `m` can never read keys from the future (`t > m`).
+
+Timing: the naive baseline loops in Python over the 64 (batch, head) pairs; the fair reference
+is the same NumPy math batched over all heads with no Python loop. Times are medians after a
+warmup call. The compiled HLO is inspected and reported as it is (several fusions, not one).
 """
 
 from __future__ import annotations
 
+import re
+import statistics
 import time
+from collections.abc import Callable
+from typing import Any
 
 import jax
 import jax.numpy as jnp
@@ -82,6 +90,52 @@ def numpy_naive_causal_rope_attention(
     return out
 
 
+def numpy_batched_causal_rope_attention(
+    q: np.ndarray,
+    k: np.ndarray,
+    v: np.ndarray,
+    cos: np.ndarray,
+    sin: np.ndarray,
+) -> np.ndarray:
+    """Fair reference: the same NumPy math batched over (batch, heads), no Python loop."""
+    seq_len, head_dim = q.shape[-2], q.shape[-1]
+    half = head_dim // 2
+    scale = np.float32(1.0 / np.sqrt(head_dim))
+    q_rot = np.concatenate(
+        [q[..., :half] * cos - q[..., half:] * sin, q[..., :half] * sin + q[..., half:] * cos],
+        axis=-1,
+    )
+    k_rot = np.concatenate(
+        [k[..., :half] * cos - k[..., half:] * sin, k[..., :half] * sin + k[..., half:] * cos],
+        axis=-1,
+    )
+    scores = (q_rot @ np.swapaxes(k_rot, -1, -2)) * scale
+    mask = np.tril(np.ones((seq_len, seq_len), dtype=bool))
+    scores = np.where(mask, scores, -1e9)
+    scores = scores - np.max(scores, axis=-1, keepdims=True)
+    weights = np.exp(scores)
+    weights = weights / np.sum(weights, axis=-1, keepdims=True)
+    return weights @ v
+
+
+def median_ms(fn: Callable[[], Any], repeats: int) -> float:
+    """Median wall time in ms after one warmup call; JAX results are block_until_ready()."""
+    jax.block_until_ready(fn())
+    times = []
+    for _ in range(repeats):
+        t0 = time.perf_counter()
+        jax.block_until_ready(fn())
+        times.append((time.perf_counter() - t0) * 1000.0)
+    return statistics.median(times)
+
+
+def compiled_hlo_op_counts(jitted: Any, *args: Any) -> dict[str, int]:
+    """Count fusion and dot instructions in the optimized HLO that XLA actually compiled."""
+    text = jitted.lower(*args).compile().as_text()
+    ops = re.findall(r"=\s*\S+\s+([a-z][\w-]*)\(", text)
+    return {"fusion": ops.count("fusion"), "dot": ops.count("dot")}
+
+
 @jax.jit
 def jax_jit_causal_rope_attention(
     q: jax.Array,
@@ -90,7 +144,7 @@ def jax_jit_causal_rope_attention(
     cos: jax.Array,
     sin: jax.Array,
 ) -> jax.Array:
-    """Vectorized and fused @jax.jit Causal Self-Attention with RoPE."""
+    """Causal self-attention with RoPE, vectorized over (batch, heads) and compiled by XLA."""
     seq_len = q.shape[-2]
     head_dim = q.shape[-1]
     q_rot = apply_rope(q, cos[None, None, :, :], sin[None, None, :, :])
@@ -129,7 +183,7 @@ def verify_rope_and_causality(
     dot_b = jnp.sum(q_p17 * k_p14)
     rope_rel_diff = float(jnp.abs(dot_a - dot_b))
 
-    # Causal invariance check: mutate tokens after pivot=32 and verify prefix [0..32] is untouched
+    # Causal invariance check: mutate K, V after the pivot (T // 2) and verify the prefix is untouched
     pivot = q.shape[-2] // 2
     out_clean = jax_jit_causal_rope_attention(q, k, v, cos, sin)
     k_mutated = k.at[:, :, pivot + 1 :, :].add(50.0)
@@ -159,23 +213,25 @@ def run_experiment(
     cos_np, sin_np = np.asarray(cos), np.asarray(sin)
 
     ref_out = numpy_naive_causal_rope_attention(q_np, k_np, v_np, cos_np, sin_np)
+    batched_out = numpy_batched_causal_rope_attention(q_np, k_np, v_np, cos_np, sin_np)
     jit_out = jax_jit_causal_rope_attention(q, k, v, cos, sin).block_until_ready()
     max_diff = float(np.max(np.abs(ref_out - np.asarray(jit_out))))
+    max_diff_batched = float(np.max(np.abs(batched_out - np.asarray(jit_out))))
 
     rope_norm_diff, rope_rel_diff, causal_prefix_leak = verify_rope_and_causality(
         q, k, v, cos, sin
     )
+    hlo = compiled_hlo_op_counts(jax_jit_causal_rope_attention, q, k, v, cos, sin)
 
-    py_iters = max(4, iters // 8)
-    t0 = time.perf_counter()
-    for _ in range(py_iters):
-        _ = numpy_naive_causal_rope_attention(q_np, k_np, v_np, cos_np, sin_np)
-    naive_ms = ((time.perf_counter() - t0) / py_iters) * 1000.0
-
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        jax_jit_causal_rope_attention(q, k, v, cos, sin).block_until_ready()
-    jit_ms = ((time.perf_counter() - t0) / iters) * 1000.0
+    naive_ms = median_ms(
+        lambda: numpy_naive_causal_rope_attention(q_np, k_np, v_np, cos_np, sin_np),
+        max(7, iters // 4),
+    )
+    batched_ms = median_ms(
+        lambda: numpy_batched_causal_rope_attention(q_np, k_np, v_np, cos_np, sin_np),
+        max(7, iters // 4),
+    )
+    jit_ms = median_ms(lambda: jax_jit_causal_rope_attention(q, k, v, cos, sin), iters)
 
     return {
         "backend": jax.default_backend(),
@@ -183,29 +239,46 @@ def run_experiment(
         "rope_norm_diff": rope_norm_diff,
         "rope_rel_diff": rope_rel_diff,
         "causal_prefix_leak": causal_prefix_leak,
+        "causal_pivot": seq_len // 2,
+        "batch_head_pairs": batch_size * num_heads,
+        "hlo_fusions": hlo["fusion"],
+        "hlo_dots": hlo["dot"],
         "naive_ms": naive_ms,
+        "numpy_batched_ms": batched_ms,
         "jit_ms": jit_ms,
         "speedup": naive_ms / jit_ms,
+        "speedup_vs_numpy_batched": batched_ms / jit_ms,
         "max_diff": max_diff,
+        "max_diff_numpy_batched": max_diff_batched,
     }
 
 
 def main() -> None:
     metrics = run_experiment()
-    print("=" * 72)
+    print("=" * 76)
     print("Experiment 02: Self-Attention as Soft Dictionary (Causal Mask + RoPE)")
-    print("=" * 72)
+    print("=" * 76)
     print(f"Backend Device                : {metrics['backend']}")
-    print(f"Attention Tensor Shape        : {metrics['shape']} float32")
-    print(f"RoPE Norm Preservation Error  : {metrics['rope_norm_diff']:.2e} (||RoPE(q)|| == ||q||)")
-    print(f"RoPE Relative Shift Error     : {metrics['rope_rel_diff']:.2e} (shift-invariant dot)")
-    print(f"Causal Prefix Future Leakage  : {metrics['causal_prefix_leak']:.2e} (zero future leak)")
-    print("-" * 72)
-    print(f"Naive Python/NumPy Head Loop  : {metrics['naive_ms']:.4f} ms")
-    print(f"JAX @jit Fused RoPE Attention : {metrics['jit_ms']:.4f} ms")
-    print(f"Speedup vs Naive Loop         : {metrics['speedup']:.2f}x")
-    print(f"Max |Naive - JAX @jit|        : {metrics['max_diff']:.2e}")
-    print("=" * 72)
+    print(f"Attention Tensor Shape        : {metrics['shape']} float32 [B, H, T, D_h]")
+    print(f"RoPE Norm Preservation Error  : {metrics['rope_norm_diff']:.2e} (||RoPE(q)|| vs ||q||)")
+    print(f"RoPE Relative Shift Error     : {metrics['rope_rel_diff']:.2e} (q@5.k@2 vs q@17.k@14)")
+    print(
+        f"Causal Prefix Leakage         : {metrics['causal_prefix_leak']:.2e} "
+        f"(K, V changed after pos {metrics['causal_pivot']})"
+    )
+    print(
+        f"Compiled HLO (XLA CPU)        : {metrics['hlo_fusions']} fusions, "
+        f"{metrics['hlo_dots']} dot ops (several kernels)"
+    )
+    print("-" * 76)
+    print("Median ms after warmup")
+    print(f"NumPy, Python loop of {metrics['batch_head_pairs']} (b,h): {metrics['naive_ms']:.4f} ms")
+    print(f"NumPy batched, no Python loop : {metrics['numpy_batched_ms']:.4f} ms")
+    print(f"JAX @jit RoPE attention       : {metrics['jit_ms']:.4f} ms")
+    print(f"@jit vs NumPy loop (naive)    : {metrics['speedup']:.2f}x")
+    print(f"@jit vs NumPy batched (fair)  : {metrics['speedup_vs_numpy_batched']:.2f}x")
+    print(f"Max |NumPy - JAX @jit|        : {metrics['max_diff']:.2e}")
+    print("=" * 76)
 
 
 if __name__ == "__main__":

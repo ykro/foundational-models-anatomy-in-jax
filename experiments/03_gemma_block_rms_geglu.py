@@ -2,20 +2,30 @@
 
 Mental model for Software Devs:
 A modern Foundational Model (like Gemma 2 / Gemma 3) is a pipeline of `N` identical decoder
-blocks. Each block transforms a residual stream tensor `x` of shape `(B, T, D)` using three
-data-structure optimizations over the 2017 Transformer:
+blocks. This file builds one Gemma-style block with toy dimensions and random weights (real Gemma
+adds more details). The block transforms a residual stream tensor `x` of shape `(B, T, D)` into a
+tensor of the same shape using three components:
 1. `RMSNorm` replaces `LayerNorm`: normalizes by root-mean-square without computing or subtracting
    the mean, saving one reduction pass over `D` per normalization.
 2. `Grouped-Query Attention (GQA)`: `H_q` query heads share a smaller number of `H_kv` key/value
-   heads (`H_q = 8, H_kv = 2 -> 4x smaller KV-cache footprint in RAM/HBM`).
+   heads. With `H_q = 8, H_kv = 2` the K/V tensors you store and read are 4x smaller (shape
+   arithmetic, 8 / 2). Inside the block K/V are repeated to 8 heads with `jnp.repeat`, so the
+   attention compute does not shrink.
 3. `GeGLU` MLP: replaces a static 2-layer feed-forward network with a multiplicative gate
    `gelu(x @ W_gate) * (x @ W_up)` before projecting back down with `W_down`.
+
+Timing compares JAX eager (one dispatch per op) with the same function under `@jax.jit`; times
+are medians after a warmup call. Most FLOPs are matmuls that already run in optimized kernels in
+eager mode, so the compiler mostly wins by fusing the small ops around them.
 """
 
 from __future__ import annotations
 
+import re
+import statistics
 import time
-from typing import TypedDict
+from collections.abc import Callable
+from typing import Any, TypedDict
 
 import jax
 import jax.numpy as jnp
@@ -121,6 +131,24 @@ def gemma_decoder_block(
 jax_jit_gemma_block = jax.jit(gemma_decoder_block)
 
 
+def median_ms(fn: Callable[[], Any], repeats: int) -> float:
+    """Median wall time in ms after one warmup call; JAX results are block_until_ready()."""
+    jax.block_until_ready(fn())
+    times = []
+    for _ in range(repeats):
+        t0 = time.perf_counter()
+        jax.block_until_ready(fn())
+        times.append((time.perf_counter() - t0) * 1000.0)
+    return statistics.median(times)
+
+
+def compiled_hlo_op_counts(jitted: Any, *args: Any) -> dict[str, int]:
+    """Count fusion and dot instructions in the optimized HLO that XLA actually compiled."""
+    text = jitted.lower(*args).compile().as_text()
+    ops = re.findall(r"=\s*\S+\s+([a-z][\w-]*)\(", text)
+    return {"fusion": ops.count("fusion"), "dot": ops.count("dot")}
+
+
 def run_experiment(
     batch_size: int = 8,
     seq_len: int = 128,
@@ -157,21 +185,17 @@ def run_experiment(
     normed_sample = rms_norm(x, params["rms_attn_scale"])
     rms_val = float(jnp.mean(jnp.sqrt(jnp.mean(jnp.square(normed_sample), axis=-1))))
 
-    # Memory traffic comparison: Standard MHA (H_kv = H_q) vs GQA (H_kv = 2)
+    # What eager dispatches one by one vs what XLA compiles
+    eager_ops = len(jax.make_jaxpr(gemma_decoder_block)(x, params, cos, sin).jaxpr.eqns)
+    hlo = compiled_hlo_op_counts(jax_jit_gemma_block, x, params, cos, sin)
+
+    # K/V bytes to store per layer (shape arithmetic): standard MHA (H_kv = H_q) vs GQA (H_kv = 2)
     mha_kv_bytes = 2 * batch_size * num_q_heads * seq_len * head_dim * 4
     gqa_kv_bytes = 2 * batch_size * num_kv_heads * seq_len * head_dim * 4
     kv_memory_saving_ratio = mha_kv_bytes / gqa_kv_bytes
 
-    eager_iters = max(6, iters // 4)
-    t0 = time.perf_counter()
-    for _ in range(eager_iters):
-        gemma_decoder_block(x, params, cos, sin).block_until_ready()
-    eager_ms = ((time.perf_counter() - t0) / eager_iters) * 1000.0
-
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        jax_jit_gemma_block(x, params, cos, sin).block_until_ready()
-    jit_ms = ((time.perf_counter() - t0) / iters) * 1000.0
+    eager_ms = median_ms(lambda: gemma_decoder_block(x, params, cos, sin), max(9, iters // 3))
+    jit_ms = median_ms(lambda: jax_jit_gemma_block(x, params, cos, sin), iters)
 
     return {
         "backend": jax.default_backend(),
@@ -182,6 +206,9 @@ def run_experiment(
         "gqa_kv_kb": gqa_kv_bytes / 1024.0,
         "kv_memory_saving_ratio": kv_memory_saving_ratio,
         "rms_mean": rms_val,
+        "eager_top_level_ops": eager_ops,
+        "hlo_fusions": hlo["fusion"],
+        "hlo_dots": hlo["dot"],
         "eager_ms": eager_ms,
         "jit_ms": jit_ms,
         "speedup": eager_ms / jit_ms,
@@ -191,26 +218,37 @@ def run_experiment(
 
 def main() -> None:
     metrics = run_experiment()
-    print("=" * 72)
-    print("Experiment 03: Gemma Decoder Block (RMSNorm + GQA + GeGLU)")
-    print("=" * 72)
+    group = metrics["num_q_heads"] // metrics["num_kv_heads"]
+    print("=" * 76)
+    print("Experiment 03: Gemma-Style Decoder Block (RMSNorm + GQA + GeGLU)")
+    print("=" * 76)
     print(f"Backend Device                : {metrics['backend']}")
-    print(f"Residual Stream Shape         : {metrics['shape']} float32")
+    print(f"Residual Stream Shape         : {metrics['shape']} float32 [B, T, D], in and out")
     print(
-        f"GQA Head Topology             : {metrics['num_q_heads']} Query heads sharing "
-        f"{metrics['num_kv_heads']} KV heads (4:1 group)"
+        f"GQA Head Topology             : {metrics['num_q_heads']} query heads share "
+        f"{metrics['num_kv_heads']} K/V heads (groups of {group})"
     )
     print(
-        f"KV Tensor Footprint per Layer : {metrics['mha_kv_kb']:.1f} KB (MHA) -> "
-        f"{metrics['gqa_kv_kb']:.1f} KB (GQA) ({metrics['kv_memory_saving_ratio']:.2f}x reduction)"
+        f"K/V Stored per Layer          : {metrics['mha_kv_kb']:.0f} KB (MHA) -> "
+        f"{metrics['gqa_kv_kb']:.0f} KB (GQA), {metrics['kv_memory_saving_ratio']:.2f}x less "
+        "(shape arithmetic)"
     )
-    print(f"RMSNorm Activation RMS        : {metrics['rms_mean']:.6f} (target ~1.000000)")
-    print("-" * 72)
-    print(f"JAX Eager Gemma Block Time    : {metrics['eager_ms']:.4f} ms")
-    print(f"JAX @jit Fused Gemma Block    : {metrics['jit_ms']:.4f} ms")
-    print(f"Speedup (@jit vs Eager)       : {metrics['speedup']:.2f}x")
-    print(f"Max |Eager - JAX @jit|        : {metrics['max_diff']:.2e}")
-    print("=" * 72)
+    print(
+        f"K/V Inside Attention          : repeated to {metrics['num_q_heads']} heads "
+        "(jnp.repeat), attention compute unchanged"
+    )
+    print(f"RMSNorm Activation RMS        : {metrics['rms_mean']:.6f} (target 1.0)")
+    print(
+        f"Eager vs Compiled             : {metrics['eager_top_level_ops']} jaxpr ops dispatched "
+        f"one by one | HLO {metrics['hlo_fusions']} fusions, {metrics['hlo_dots']} dots"
+    )
+    print("-" * 76)
+    print("Median ms after warmup")
+    print(f"JAX eager block               : {metrics['eager_ms']:.4f} ms")
+    print(f"JAX @jit block                : {metrics['jit_ms']:.4f} ms")
+    print(f"Speedup (@jit vs eager)       : {metrics['speedup']:.2f}x")
+    print(f"Max |eager - @jit|            : {metrics['max_diff']:.2e}")
+    print("=" * 76)
 
 
 if __name__ == "__main__":

@@ -2,21 +2,34 @@
 
 Mental model for Software Devs:
 Autoregressive generation produces one token at a time, appending each new token to the sequence.
-- Naive Recomputation (`O(T^2)` per step, `O(T^3)` total): At step `t`, re-run the entire sequence
-  `tokens[0:t]` through all Transformer blocks. Every previous Key and Value vector is recomputed
-  from scratch even though causal masking guarantees past Keys and Values never change!
-- `Prefill` + `KV-Cache Decode` (`O(T)` per step, `O(T^2)` total):
-  1. `Prefill`: Process the initial prompt (`T_prompt` tokens) in parallel and store its `K` and `V`
-     tensors into a pre-allocated static array `(B, H_kv, max_seq_len, D_h)`.
-  2. `Decode`: For each new token (`1` token at position `pos`), compute only `q_new, k_new, v_new`
-     for that single token, insert `k_new, v_new` at index `pos` via `jax.lax.dynamic_update_slice`,
-     and attend over the cached keys `0..pos`.
+- Naive recomputation: at step `t`, re-run the whole sequence through every block. Every previous
+  Key and Value vector is recomputed from scratch even though the causal mask guarantees past Keys
+  and Values never change.
+- `Prefill` + `KV-Cache Decode`:
+  1. `Prefill`: process the prompt (`T_prompt` tokens) in parallel and store its `K` and `V`
+     tensors in a pre-allocated static buffer `(L, B, H_kv, max_seq_len, D_h)`.
+  2. `Decode`: for each new token, compute only `q_new, k_new, v_new`, write `k_new, v_new` at
+     index `pos` with `jax.lax.dynamic_update_slice` and attend over the cached keys.
+
+What it costs: the write costs the same at any position, but the new query still attends over
+every cached key, so each decode step grows linearly with the context. The cache removes the
+recomputation of the prefix; it does not make a token O(1). In this file the buffer has a static
+size (jit needs static shapes) and a mask hides the empty slots, so every decode step reads all
+`max_seq_len` slots, and the naive baseline recomputes the full padded window at every step.
+`decode_step_ms_by_cache_len` times one decode step with larger buffers to show the growth.
+
+The model is a toy: a 4-layer decoder with random weights, GQA with 4 query and 2 K/V heads,
+RMSNorm, a plain GELU MLP (no GeGLU gate), no RoPE and a tied output projection. Both loops are
+compiled with `@jax.jit` inside `lax.scan`, so the speedup measures the algorithm. Times are
+medians after a warmup call.
 """
 
 from __future__ import annotations
 
+import statistics
 import time
-from typing import NamedTuple
+from collections.abc import Callable
+from typing import Any, NamedTuple
 
 import jax
 import jax.numpy as jnp
@@ -37,7 +50,7 @@ def init_tiny_gemma_weights(
     num_kv_heads: int = 2,
     head_dim: int = 32,
 ) -> dict[str, jax.Array]:
-    """Initialize a multi-layer decoder model with GQA and tied output projection."""
+    """Initialize a toy multi-layer decoder (random weights) with GQA and tied output projection."""
     k_emb, k_wq, k_wk, k_wv, k_wo, k_w1, k_w2 = jax.random.split(key, 7)
     scale = 1.0 / jnp.sqrt(jnp.float32(d_model))
     return {
@@ -199,7 +212,7 @@ def decode_one_token_with_kv_cache(
         k_step = jnp.einsum("btd,dkh->bkth", h, weights["w_k"][layer])  # (B, H_kv, 1, D_h)
         v_step = jnp.einsum("btd,dkh->bkth", h, weights["w_v"][layer])  # (B, H_kv, 1, D_h)
 
-        # O(1) slice update into pre-allocated static KV-cache buffer
+        # The write costs the same at any pos; the attention below still reads every cached slot
         k_layer = jax.lax.dynamic_update_slice(k_cache[layer], k_step, (0, 0, pos, 0))
         v_layer = jax.lax.dynamic_update_slice(v_cache[layer], v_step, (0, 0, pos, 0))
         k_cache = k_cache.at[layer].set(k_layer)
@@ -260,6 +273,38 @@ def kv_cache_generate_loop(
     return final_buffer, all_logits
 
 
+def median_ms(fn: Callable[[], Any], repeats: int) -> float:
+    """Median wall time in ms after one warmup call; JAX results are block_until_ready()."""
+    jax.block_until_ready(fn())
+    times = []
+    for _ in range(repeats):
+        t0 = time.perf_counter()
+        jax.block_until_ready(fn())
+        times.append((time.perf_counter() - t0) * 1000.0)
+    return statistics.median(times)
+
+
+jax_jit_decode_step = jax.jit(decode_one_token_with_kv_cache)
+
+
+def decode_step_ms_by_cache_len(
+    weights: dict[str, jax.Array],
+    batch_size: int,
+    cache_lens: tuple[int, ...],
+    repeats: int,
+) -> dict[str, float]:
+    """Median time of one compiled decode step for KV-cache buffers of different lengths."""
+    num_layers, _, num_kv_heads, head_dim = weights["w_k"].shape
+    token = jnp.zeros((batch_size, 1), dtype=jnp.int32)
+    out = {}
+    for n in cache_lens:
+        shape = (num_layers, batch_size, num_kv_heads, n, head_dim)
+        cache = KVCache(k=jnp.zeros(shape, jnp.float32), v=jnp.zeros(shape, jnp.float32))
+        pos = jnp.int32(n // 2)
+        out[str(n)] = median_ms(lambda c=cache, p=pos: jax_jit_decode_step(weights, c, token, p), repeats)
+    return out
+
+
 def run_experiment(
     batch_size: int = 4,
     prompt_len: int = 64,
@@ -280,50 +325,70 @@ def run_experiment(
     kv_tokens.block_until_ready()
 
     exact_token_match = bool(jnp.array_equal(naive_tokens, kv_tokens))
+    generated = slice(prompt_len, prompt_len + gen_steps)
+    tokens_identical = int(jnp.sum(naive_tokens[:, generated] == kv_tokens[:, generated]))
     max_logit_diff = float(np.max(np.abs(np.asarray(naive_logits) - np.asarray(kv_logits))))
 
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        t_naive, _ = naive_generate_loop(weights, prompt)
-        t_naive.block_until_ready()
-    naive_ms = ((time.perf_counter() - t0) / iters) * 1000.0
-
-    t0 = time.perf_counter()
-    for _ in range(iters):
-        t_kv, _ = kv_cache_generate_loop(weights, prompt)
-        t_kv.block_until_ready()
-    kv_ms = ((time.perf_counter() - t0) / iters) * 1000.0
+    naive_ms = median_ms(lambda: naive_generate_loop(weights, prompt)[0], max(5, iters // 3))
+    kv_ms = median_ms(lambda: kv_cache_generate_loop(weights, prompt)[0], iters)
+    step_ms = decode_step_ms_by_cache_len(weights, batch_size, (128, 1024, 8192), iters)
+    num_layers, _, num_kv_heads, head_dim = weights["w_k"].shape
+    cache_shape = (num_layers, batch_size, num_kv_heads, max_seq_len, head_dim)
 
     return {
         "backend": jax.default_backend(),
         "prompt_len": prompt_len,
         "gen_steps": gen_steps,
         "max_seq_len": max_seq_len,
+        "batch_size": batch_size,
+        "num_layers": num_layers,
+        "cache_shape": str(cache_shape),
+        "cache_kb_each": int(np.prod(cache_shape)) * 4 / 1024.0,
         "exact_token_match": exact_token_match,
+        "generated_tokens_identical": tokens_identical,
+        "generated_tokens_total": batch_size * gen_steps,
         "max_logit_diff": max_logit_diff,
         "naive_ms": naive_ms,
         "kv_ms": kv_ms,
         "speedup": naive_ms / kv_ms,
+        "decode_step_ms_by_cache_len": step_ms,
     }
 
 
 def main() -> None:
     metrics = run_experiment()
-    print("=" * 72)
+    print("=" * 76)
     print("Experiment 04: KV-Cache Data Structure (Prefill vs Decode Loop)")
-    print("=" * 72)
+    print("=" * 76)
     print(f"Backend Device                : {metrics['backend']}")
     print(
-        f"Workload                      : Prefill {metrics['prompt_len']} tokens + "
-        f"Decode {metrics['gen_steps']} tokens (max_seq_len={metrics['max_seq_len']})"
+        f"Model                         : toy {metrics['num_layers']}-layer decoder, random "
+        "weights, GQA 4:2, no RoPE"
     )
-    print(f"Exact Greedy Token Parity     : {metrics['exact_token_match']} (64/64 tokens identical)")
-    print(f"Max |Naive - KV-Cache Logits| : {metrics['max_logit_diff']:.2e}")
-    print("-" * 72)
-    print(f"Naive Full Recompute O(T^2)   : {metrics['naive_ms']:.4f} ms")
-    print(f"Prefill + KV-Cache Decode O(T): {metrics['kv_ms']:.4f} ms")
-    print(f"Speedup (KV-Cache vs Naive)   : {metrics['speedup']:.2f}x")
-    print("=" * 72)
+    print(
+        f"Workload                      : prefill {metrics['prompt_len']} + decode "
+        f"{metrics['gen_steps']} tokens, buffer {metrics['max_seq_len']} slots, "
+        f"batch {metrics['batch_size']}"
+    )
+    print(
+        f"KV-Cache Buffer (k and v)     : {metrics['cache_shape']} float32, "
+        f"{metrics['cache_kb_each']:.0f} KB each"
+    )
+    print(
+        f"Greedy Token Parity           : {metrics['generated_tokens_identical']}/"
+        f"{metrics['generated_tokens_total']} generated tokens identical"
+    )
+    print(f"Max logit diff vs recompute   : {metrics['max_logit_diff']:.2e}")
+    print("-" * 76)
+    print("Both loops @jax.jit + lax.scan; median ms after warmup")
+    print(f"Recompute full window per step: {metrics['naive_ms']:.4f} ms")
+    print(f"Prefill + KV-cache decode     : {metrics['kv_ms']:.4f} ms")
+    print(f"Speedup, cache vs recompute   : {metrics['speedup']:.2f}x")
+    print("-" * 76)
+    print("One decode step vs cache length (each step reads the whole cache)")
+    for n, ms in metrics["decode_step_ms_by_cache_len"].items():
+        print(f"  {int(n):>5} slots                 : {ms:.4f} ms")
+    print("=" * 76)
 
 
 if __name__ == "__main__":
