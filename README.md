@@ -32,24 +32,24 @@ Un modelo fundacional termina cada pasada entregando un vector plano de `logits`
 
 ## Resultados Reales de Verificación (`verify_anatomy.py`)
 
-Una corrida de `make all` en CPU (`Apple M1 Max`, 10 núcleos, load average de 1 minuto `21.65` al empezar: la máquina estaba cargada), Python `3.12.11`, JAX `0.12.0.1` y NumPy `2.5.4`. Las cifras de esta tabla son las de `benchmarks/latest_results.json`.
+Una corrida de `make all` en CPU (`Apple M1 Max`, 10 núcleos, load average de 1 minuto `15.18` al empezar: la máquina estaba cargada), Python `3.12.11`, JAX `0.12.0.1` y NumPy `2.5.4`. Las cifras de esta tabla son las de `benchmarks/latest_results.json`.
 
 | Experimento | Baseline ingenuo | Resultado en JAX | Referencia justa y verificaciones |
 | :--- | :--- | :--- | :--- |
-| **01. BPE y gather de embeddings** | `for-loop` de Python que copia 16,384 filas una por una: `12.9598 ms` | `@jax.jit` gather: `0.3221 ms` (**40.23x**) | NumPy vectorizado `emb[ids]`: `1.1806 ms`, el jit gana **3.67x**. BPE: 384 tokens (256 bytes + 128 fusiones), round-trip exacto, oración del corpus `175 → 79` tokens (`2.22x`), oración que no estaba en el corpus `86 → 54` (`1.59x`) |
-| **02. Atención causal + RoPE** | NumPy con un loop de Python sobre las 64 combinaciones batch × cabeza: `6.5550 ms` | `@jax.jit`: `1.1320 ms` (**5.79x**) | NumPy batched sin loop de Python: `5.3277 ms`, el jit gana **4.71x**. Fuga causal `0.0`, error de RoPE `1e-06` (redondeo de float32). HLO compilado: 7 fusiones y 2 `dot` |
-| **03. Bloque estilo Gemma (RMSNorm + GQA + GeGLU)** | JAX eager: `6.5208 ms` | `@jax.jit`: `3.6783 ms` (**1.77x**) | 88 operaciones de primer nivel despachadas una por una en eager contra 30 fusiones (9 `dot`) en el HLO. K/V guardados por capa `2048 → 512 KB` (8 cabezas de query, 2 de K/V; aritmética de formas, no memoria medida) |
-| **04. KV-cache, prefill 64 + decode 64** | Recalcular la ventana completa de 128 posiciones en cada paso: `423.1220 ms` | `prefill` + `KV-cache`: `33.6515 ms` (**12.57x**) | Las dos versiones compiladas con `@jax.jit` dentro de `lax.scan` (comparación justa; el speedup es del algoritmo). 256/256 tokens generados idénticos, diferencia máxima de logits `8e-06`. Un paso de decode: `0.5831 ms` con 128 posiciones, `2.0352 ms` con 1024, `11.9785 ms` con 8192 |
-| **05. Sampling loop + máscara de gramática** | Loop de Python por paso y por fila con `argsort` del vocabulario: `68.0771 ms` | `@jax.jit` + `lax.scan`: `3.1686 ms` (**21.48x**) | Loop de Python que llama a un paso compilado: `6.1462 ms`, el scan gana **1.94x** (mismos tokens). Máscara respetada en 2048/2048 sorteos (100%, por construcción). Con `T=1e-4`, Top-K=16 y Top-P=0.90, 64/64 filas igual a argmax |
+| **01. BPE y gather de embeddings** | `for-loop` de Python que copia 16,384 filas una por una: `16.5860 ms` | `@jax.jit` gather: `0.3065 ms` (**54.12x**) | NumPy vectorizado `emb[ids]`: `1.5865 ms`, el jit gana **5.18x**. BPE: 384 tokens (256 bytes + 128 fusiones), round-trip exacto, oración del corpus `175 → 79` tokens (`2.22x`), oración que no estaba en el corpus `86 → 54` (`1.59x`) |
+| **02. Atención causal + RoPE** | NumPy con un loop de Python sobre las 64 combinaciones batch × cabeza: `8.3050 ms` | `@jax.jit`: `1.8091 ms` (**4.59x**) | NumPy batched sin loop de Python: `6.7996 ms`, el jit gana **3.76x**. Fuga causal `0.0`, error de RoPE `1e-06` (redondeo de float32). HLO compilado: 7 fusiones y 2 `dot` |
+| **03. Bloque estilo Gemma (RMSNorm + GQA + GeGLU)** | JAX eager: `8.5054 ms` | `@jax.jit`: `5.2392 ms` (**1.62x**) | 88 operaciones de primer nivel despachadas una por una en eager contra 30 fusiones (9 `dot`) en el HLO. K/V guardados por capa `2048 → 512 KB` (8 cabezas de query, 2 de K/V; aritmética de formas, no memoria medida) |
+| **04. KV-cache, prefill 64 + decode 64** | Recalcular la ventana completa de 128 posiciones en cada paso: `518.1267 ms` | `prefill` + `KV-cache`: `42.9596 ms` (**12.06x**) | Las dos versiones compiladas con `@jax.jit` dentro de `lax.scan` (comparación justa; el speedup es del algoritmo). 256/256 tokens generados idénticos, diferencia máxima de logits `8e-06`. Un paso de decode: `0.6399 ms` con 128 posiciones, `2.0194 ms` con 1024, `11.5248 ms` con 8192 |
+| **05. Sampling loop + máscara de gramática** | Loop de Python por paso y por fila con `argsort` del vocabulario: `85.7804 ms` | `@jax.jit` + `lax.scan`: `3.9757 ms` (**21.58x**) | Loop de Python que llama a un paso compilado: `7.7220 ms`, el scan gana **1.94x** (mismos tokens). Máscara respetada en 2048/2048 sorteos (100%, por construcción). Con `T=1e-4`, Top-K=16 y Top-P=0.90, 64/64 filas igual a argmax |
 
 ### Cómo leer estas cifras
 
 - **Es un modelo de juguete.** Bloques estilo Gemma con dimensiones pequeñas y pesos aleatorios. El experimento 04 es un decoder de 4 capas aún más simple: GQA 4:2, MLP con GELU sin compuerta y sin RoPE.
 - **Las verificaciones son deterministas; los tiempos no.** Round-trip, fuga causal, paridad numérica, tokens idénticos y máscara salen de semillas fijas y se repiten en cada corrida. Cada tiempo es la mediana después de una llamada de calentamiento (`block_until_ready()` en todas las ramas de JAX) y cambia entre corridas, sobre todo con la máquina cargada. Cada script imprime su propia medición, así que sus tiempos no coinciden con los de esta tabla. Importa el orden de magnitud.
-- **Cada «Nx» dice contra qué compara.** El `40.23x` del 01 mide sobre todo el costo de recorrer filas desde Python; contra NumPy vectorizado el jit gana `3.67x`. El `5.79x` del 02 compara contra un loop de Python sobre cabezas; contra NumPy batched queda en `4.71x`, así que casi toda la ventaja viene de la matemática compilada. El `21.48x` del 05 compara contra un loop en el host que ordena el vocabulario completo; contra un loop que ya llama a un paso compilado, `lax.scan` gana `1.94x` por no volver a Python en cada token.
+- **Cada «Nx» dice contra qué compara.** El `54.12x` del 01 mide sobre todo el costo de recorrer filas desde Python; contra NumPy vectorizado el jit gana `5.18x`. El `4.59x` del 02 compara contra un loop de Python sobre cabezas; contra NumPy batched queda en `3.76x`, así que casi toda la ventaja viene de la matemática compilada. El `21.58x` del 05 compara contra un loop en el host que ordena el vocabulario completo; contra un loop que ya llama a un paso compilado, `lax.scan` gana `1.94x` por no volver a Python en cada token.
 - **El bloque gana poco con jit, y tiene sentido.** Casi todo el trabajo son multiplicaciones de matrices que ya corren en kernels optimizados en eager; el compilador gana fusionando las operaciones pequeñas de alrededor y evitando su dispatch. El HLO tiene varias fusiones, no un solo kernel.
 - **El `4.00x` de GQA es aritmética de formas** (8 cabezas de query entre 2 de K/V). Dentro del bloque K y V se repiten con `jnp.repeat` para atender, así que baja lo que guardas y lees de memoria, no el cómputo de la atención.
-- **El KV-cache no hace que un token cueste `O(1)`.** Escribir la key nueva cuesta lo mismo en cualquier posición, pero la query se compara contra todo el buffer: un paso de decode pasa de `0.58 ms` a `11.98 ms` al ir de 128 a 8192 posiciones. Aquí el buffer tiene tamaño fijo (jit necesita formas estáticas) y una máscara apaga las posiciones vacías.
+- **El KV-cache no hace que un token cueste `O(1)`.** Escribir la key nueva cuesta lo mismo en cualquier posición, pero la query se compara contra todo el buffer: un paso de decode pasa de `0.64 ms` a `11.52 ms` al ir de 128 a 8192 posiciones. Aquí el buffer tiene tamaño fijo (jit necesita formas estáticas) y una máscara apaga las posiciones vacías.
 - **El 100% de la gramática está garantizado por construcción.** Los logits son aleatorios y la gramática es una secuencia fija de 8 conjuntos permitidos sobre un vocabulario de juguete. Prueba que la máscara se aplica antes de sortear en todos los pasos, no que un modelo produzca JSON.
 - **La compresión de BPE es optimista dentro del corpus.** El tokenizador se entrenó sobre un párrafo que contiene la oración de prueba (`2.22x`); con una oración que no estaba en el corpus baja a `1.59x`. El «4.91x menos pares» es el cuadrado de `2.22`, aritmética, no un tiempo medido.
 
@@ -60,21 +60,21 @@ Salida íntegra de terminal generada por `verify_anatomy.py` en esa corrida:
 THE OUTSIDE JUDGE — Foundational Models Anatomy in JAX Verification Report
 ================================================================================================
 Runtime : Python 3.12.11 | JAX 0.12.0.1 | NumPy 2.5.4 | Backend: cpu
-CPU     : Apple M1 Max (10 cores) | 1-min load average 21.65 before, 17.92 after
+CPU     : Apple M1 Max (10 cores) | 1-min load average 15.18 before, 15.52 after
 Model   : toy Gemma-style blocks, random weights (no real checkpoint)
 ------------------------------------------------------------------------------------------------
 Experiment                      | Baseline              | JAX/OpenXLA      | Speedup
 ------------------------------------------------------------------------------------------------
-01. Embedding gather (BPE ids)  | loop 12.96 ms         | @jit 0.322 ms    | 40.23x
-    fair: NumPy emb[ids] 1.181 ms -> @jit 3.67x; BPE 175 B -> 79 tok in-sample, held-out 1.59x
-02. Causal attention + RoPE     | NumPy loop 6.55 ms    | @jit 1.132 ms    | 5.79x
-    fair: NumPy batched 5.33 ms -> @jit 4.71x; leak 0.0; HLO 7 fusions
-03. Gemma-style block           | eager 6.52 ms         | @jit 3.678 ms    | 1.77x
+01. Embedding gather (BPE ids)  | loop 16.59 ms         | @jit 0.306 ms    | 54.12x
+    fair: NumPy emb[ids] 1.587 ms -> @jit 5.18x; BPE 175 B -> 79 tok in-sample, held-out 1.59x
+02. Causal attention + RoPE     | NumPy loop 8.30 ms    | @jit 1.809 ms    | 4.59x
+    fair: NumPy batched 6.80 ms -> @jit 3.76x; leak 0.0; HLO 7 fusions
+03. Gemma-style block           | eager 8.51 ms         | @jit 5.239 ms    | 1.62x
     K/V stored 2048 -> 512 KB (8/2 heads, arithmetic); 88 eager ops -> 30 fusions
-04. KV-cache, 64 + 64 tokens    | recompute 423.1 ms    | cache 33.65 ms   | 12.57x
-    fair: both @jit+scan; 256/256 tokens equal; one decode step 0.58 -> 11.98 ms, 128 -> 8192 slots
-05. Sampling loop + mask        | host loop 68.1 ms     | scan 3.169 ms    | 21.48x
-    fair: Python loop of @jit step 6.15 ms -> scan 1.94x; mask applied 100% (by construction)
+04. KV-cache, 64 + 64 tokens    | recompute 518.1 ms    | cache 42.96 ms   | 12.06x
+    fair: both @jit+scan; 256/256 tokens equal; one decode step 0.64 -> 11.52 ms, 128 -> 8192 slots
+05. Sampling loop + mask        | host loop 85.8 ms     | scan 3.976 ms    | 21.58x
+    fair: Python loop of @jit step 7.72 ms -> scan 1.94x; mask applied 100% (by construction)
 ------------------------------------------------------------------------------------------------
 Checks are deterministic (fixed seeds). Times are medians after a warmup and vary
 run to run.

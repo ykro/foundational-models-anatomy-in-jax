@@ -6,14 +6,14 @@
     "cpu_model": "Apple M1 Max",
     "cpu_count": 10,
     "load_average_before": [
-      21.65,
-      22.12,
-      19.09
+      15.18,
+      17.42,
+      12.15
     ],
     "load_average_after": [
-      17.92,
-      21.26,
-      18.83
+      15.52,
+      17.38,
+      12.22
     ],
     "timing": "median ms after a warmup; varies run to run",
     "jax_version": "0.12.0.1",
@@ -42,11 +42,11 @@
       ],
       "roundtrip_exact": true,
       "gather_rows": 16384,
-      "py_lookup_ms": 12.9598,
-      "numpy_vectorized_ms": 1.1806,
-      "jit_lookup_ms": 0.3221,
-      "speedup_vs_py": 40.2346,
-      "speedup_vs_numpy_vectorized": 3.6653,
+      "py_lookup_ms": 16.586,
+      "numpy_vectorized_ms": 1.5865,
+      "jit_lookup_ms": 0.3065,
+      "speedup_vs_py": 54.1214,
+      "speedup_vs_numpy_vectorized": 5.1767,
       "max_diff": 0.0,
       "max_diff_numpy_vectorized": 0.0
     },
@@ -60,11 +60,11 @@
       "batch_head_pairs": 64,
       "hlo_fusions": 7,
       "hlo_dots": 2,
-      "naive_ms": 6.555,
-      "numpy_batched_ms": 5.3277,
-      "jit_ms": 1.132,
-      "speedup": 5.7909,
-      "speedup_vs_numpy_batched": 4.7067,
+      "naive_ms": 8.305,
+      "numpy_batched_ms": 6.7996,
+      "jit_ms": 1.8091,
+      "speedup": 4.5908,
+      "speedup_vs_numpy_batched": 3.7586,
       "max_diff": 1e-06,
       "max_diff_numpy_batched": 1e-06
     },
@@ -80,9 +80,9 @@
       "eager_top_level_ops": 88,
       "hlo_fusions": 30,
       "hlo_dots": 9,
-      "eager_ms": 6.5208,
-      "jit_ms": 3.6783,
-      "speedup": 1.7728,
+      "eager_ms": 8.5054,
+      "jit_ms": 5.2392,
+      "speedup": 1.6234,
       "max_diff": 2e-06
     },
     "04_kv_cache_prefill_vs_decode": {
@@ -98,13 +98,13 @@
       "generated_tokens_identical": 256,
       "generated_tokens_total": 256,
       "max_logit_diff": 8e-06,
-      "naive_ms": 423.122,
-      "kv_ms": 33.6515,
-      "speedup": 12.5737,
+      "naive_ms": 518.1267,
+      "kv_ms": 42.9596,
+      "speedup": 12.0608,
       "decode_step_ms_by_cache_len": {
-        "128": 0.5831,
-        "1024": 2.0352,
-        "8192": 11.9785
+        "128": 0.6399,
+        "1024": 2.0194,
+        "8192": 11.5248
       }
     },
     "05_sampling_loop_temperature_top_p": {
@@ -120,11 +120,11 @@
       "grammar_valid_draws": 2048,
       "sampled_row0_first_steps": "{\"status\":\"ok\",\"tokens\":12",
       "loop_of_jit_matches_scan": true,
-      "py_ms": 68.0771,
-      "loop_of_jit_ms": 6.1462,
-      "jit_ms": 3.1686,
-      "speedup": 21.485,
-      "speedup_vs_loop_of_jit": 1.9397
+      "py_ms": 85.7804,
+      "loop_of_jit_ms": 7.722,
+      "jit_ms": 3.9757,
+      "speedup": 21.5764,
+      "speedup_vs_loop_of_jit": 1.9423
     }
   },
   "all_verifications_passed": true

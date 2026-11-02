@@ -2,21 +2,21 @@
 THE OUTSIDE JUDGE — Foundational Models Anatomy in JAX Verification Report
 ================================================================================================
 Runtime : Python 3.12.11 | JAX 0.12.0.1 | NumPy 2.5.4 | Backend: cpu
-CPU     : Apple M1 Max (10 cores) | 1-min load average 21.65 before, 17.92 after
+CPU     : Apple M1 Max (10 cores) | 1-min load average 15.18 before, 15.52 after
 Model   : toy Gemma-style blocks, random weights (no real checkpoint)
 ------------------------------------------------------------------------------------------------
 Experiment                      | Baseline              | JAX/OpenXLA      | Speedup
 ------------------------------------------------------------------------------------------------
-01. Embedding gather (BPE ids)  | loop 12.96 ms         | @jit 0.322 ms    | 40.23x
-    fair: NumPy emb[ids] 1.181 ms -> @jit 3.67x; BPE 175 B -> 79 tok in-sample, held-out 1.59x
-02. Causal attention + RoPE     | NumPy loop 6.55 ms    | @jit 1.132 ms    | 5.79x
-    fair: NumPy batched 5.33 ms -> @jit 4.71x; leak 0.0; HLO 7 fusions
-03. Gemma-style block           | eager 6.52 ms         | @jit 3.678 ms    | 1.77x
+01. Embedding gather (BPE ids)  | loop 16.59 ms         | @jit 0.306 ms    | 54.12x
+    fair: NumPy emb[ids] 1.587 ms -> @jit 5.18x; BPE 175 B -> 79 tok in-sample, held-out 1.59x
+02. Causal attention + RoPE     | NumPy loop 8.30 ms    | @jit 1.809 ms    | 4.59x
+    fair: NumPy batched 6.80 ms -> @jit 3.76x; leak 0.0; HLO 7 fusions
+03. Gemma-style block           | eager 8.51 ms         | @jit 5.239 ms    | 1.62x
     K/V stored 2048 -> 512 KB (8/2 heads, arithmetic); 88 eager ops -> 30 fusions
-04. KV-cache, 64 + 64 tokens    | recompute 423.1 ms    | cache 33.65 ms   | 12.57x
-    fair: both @jit+scan; 256/256 tokens equal; one decode step 0.58 -> 11.98 ms, 128 -> 8192 slots
-05. Sampling loop + mask        | host loop 68.1 ms     | scan 3.169 ms    | 21.48x
-    fair: Python loop of @jit step 6.15 ms -> scan 1.94x; mask applied 100% (by construction)
+04. KV-cache, 64 + 64 tokens    | recompute 518.1 ms    | cache 42.96 ms   | 12.06x
+    fair: both @jit+scan; 256/256 tokens equal; one decode step 0.64 -> 11.52 ms, 128 -> 8192 slots
+05. Sampling loop + mask        | host loop 85.8 ms     | scan 3.976 ms    | 21.58x
+    fair: Python loop of @jit step 7.72 ms -> scan 1.94x; mask applied 100% (by construction)
 ------------------------------------------------------------------------------------------------
 Checks are deterministic (fixed seeds). Times are medians after a warmup and vary
 run to run.
