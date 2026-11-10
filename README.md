@@ -4,7 +4,7 @@
 - **Para quién es:** Ingenieros de software y desarrolladores backend que ya conocen los fundamentos de JAX, redes neuronales y embeddings, y quieren entender qué ocurre exactamente en memoria durante las fases de `prefill` y `decode` de un modelo fundacional moderno sin depender de cajas negras.
 - **Quién debería verlo:** Equipos que diseñan motores de inferencia, agentes con salidas estructuradas (`JSON Grammar Mask`), optimización de latencia o dimensionamiento de memoria de `KV-cache` sobre CPU, GPU o Cloud TPU.
 - **Qué es y qué no es:** Aquí no se carga un checkpoint real de Gemma. Son bloques estilo Gemma en JAX puro, con dimensiones de juguete y pesos aleatorios, que no generan texto con sentido. Lo real son las formas, los mecanismos y los costos. Todo se midió en la CPU de una laptop; nada se afirma sobre TPU o GPU.
-- **Serie completa:** Cuarta entrega de la Serie B [JAX & ML for Software Devs Field Guide](https://github.com/ykro/jax-ml-for-software-devs-field-guide).
+- **Serie completa:** Cuarta entrega del [JAX & ML for Software Devs Field Guide](https://github.com/ykro/jax-ml-for-software-devs-field-guide).
 
 ---
 
